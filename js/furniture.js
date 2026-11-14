@@ -459,7 +459,10 @@ function fitModel(o, g, scene) {
     if (!m.isMesh) return;
     m.castShadow = m.receiveShadow = true;
     if (!tint.equals(WHITE)) { m.material = m.material.clone(); m.material.color.multiply(tint); }
-    m.material.envMapIntensity = 0.5;
+    // AI-made models often come with patchy shine on the sides the photo never showed; a plain
+    // matte, two-sided surface hides that and suits upholstery.
+    m.material.metalness = 0; m.material.metalnessMap = null; m.material.roughness = 0.9; m.material.roughnessMap = null;
+    m.material.side = THREE.DoubleSide; m.material.envMapIntensity = 0.35; m.material.needsUpdate = true;
   });
   g.add(holder);
 }
