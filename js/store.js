@@ -101,6 +101,16 @@ const online = {
   async deleteRoom(id) { await rpc('app_delete_room', { p_token: this.token, p_id: id }); },
   async getCatalog() { return rpc('app_get_catalog', { p_token: this.token }); },
   async saveCatalog(list) { await rpc('app_save_catalog', { p_token: this.token, p_items: list }); },
+  // Ask the server-side AI helper to read a product link and/or photos and suggest form values.
+  async aiProduct(input) {
+    let r;
+    try { r = await fetch(`/functions/v1/product-ai`, { method: 'POST', headers, body: JSON.stringify(Object.assign({ token: this.token }, input)) }); }
+    catch { throw new Error('No connection. Check your internet and try again.'); }
+    let j = null; try { j = await r.json(); } catch {}
+    if (r.status === 404) throw new Error('AI fill is not set up yet.');
+    if (!r.ok || !j || j.error) throw new Error((j && j.error) || 'The AI helper could not read that product. Please fill it in by hand.');
+    return j;
+  },
   browserRooms,
 };
 

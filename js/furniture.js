@@ -176,6 +176,16 @@ function recliner(o, g, k) {
   const cb = k.rbox(cw, h * 0.78 - st, 8, F, 0, st, -d / 2 + 8, 3); cb.rotation.x = -0.2;
 }
 
+function reclinerChair(o, g, k) {
+  const { w, d, h } = o, F = M(o.color, 'fabric');
+  const aw = Math.min(8, w * 0.2), sw = w - 2 * aw, st = Math.min(19, h * 0.47);
+  k.rbox(w - 2, 10, d * 0.8, F, 0, 1, -d * 0.05, 1.5);
+  for (const s of [-1, 1]) k.rbox(aw, h * 0.6, d * 0.86, F, s * (w / 2 - aw / 2), 1, 0, 3.5);
+  k.rbox(sw - 0.5, st - 3, d * 0.7, F, 0, 3, d * 0.12, 4);
+  const b = k.rbox(sw - 0.5, h - st + 3, 9, F, 0, st - 4, -d / 2 + 8, 4); b.rotation.x = -0.2;
+  const hd = k.rbox(sw - 2, h * 0.26, 5, F, 0, h * 0.72, -d / 2 + 9.5, 2.5); hd.rotation.x = -0.2;
+}
+
 function table(o, g, k) {
   const { w, d, h } = o, p = o.props || {};
   const kind = p.finish === 'plastic' ? 'plastic' : 'wood';
@@ -399,6 +409,7 @@ export const TYPES = {
   loveseat:  { label: 'Loveseat', build: sofa, group: 'furniture', accent: true, def: { w: 64, d: 38, h: 34, color: '#cfc8ba' } },
   chair:     { label: 'Armchair', build: sofa, group: 'furniture', accent: true, def: { w: 38, d: 36, h: 34, color: '#cfc8ba', props: { seats: 1, armW: 7 } } },
   recliner:  { label: 'Reclining loveseat', build: recliner, group: 'furniture', accent: true, def: { w: 76, d: 38, h: 40, color: '#b9b8b2' } },
+  reclinerchair: { label: 'Recliner chair', build: reclinerChair, group: 'furniture', def: { w: 36, d: 38, h: 40, color: '#b9b8b2' } },
   ottoman:   { label: 'Ottoman', build: ottoman, group: 'furniture', def: { w: 36, d: 24, h: 18, color: '#cfc8ba' } },
   table:     { label: 'Table', build: table, group: 'furniture', accent: true, def: { w: 44, d: 24, h: 18, color: '#6b4a33' } },
   cabinet:   { label: 'Cabinet / console', build: cabinet, group: 'furniture', def: { w: 60, d: 18, h: 30, color: '#6b4a33' } },

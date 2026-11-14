@@ -285,7 +285,10 @@ function tabLibrary() {
         el('span', { text: `${it.w} × ${it.d} × ${it.h} in${it.price ? ' · $' + it.price : ''} ` }),
         it.link && el('a', { class: 'link', href: it.link, target: '_blank', rel: 'noopener', text: 'view', style: { fontSize: '12px' } })),
       el('button', { class: 'primary', text: 'Add', onclick: () => place(it) }),
-      el('button', { class: 'ghost', text: '✕', title: 'Remove from library', onclick: async () => { if (!confirm(`Remove "${it.name}" from your library?`)) return; catalog = catalog.filter(x => x !== it); await store.saveCatalog(catalog); renderPanel(); } })))
+      el('button', { text: 'Edit', onclick: () => {
+        form = Object.assign(blankForm(), { editId: it.id, link: it.link || '', name: it.name, type: TYPES[it.type] ? it.type : 'box', w: it.w, d: it.d, h: it.h, price: it.price || '', img: it.img || null, color: it.color || '#cfc8ba', colors: clone(it.colors || []) });
+        tab = 'add'; renderPanel();
+      } })))
       : el('div', { class: 'note', text: 'No products yet. Use the Add item tab to add one from a link or a photo.' }),
     el('button', { text: '+ Add a product from a link or photo', onclick: () => { tab = 'add'; renderPanel(); } }),
     el('h3', { text: 'Basic furniture' }), el('div', { class: 'grid2' }, by('furniture')),
@@ -295,8 +298,8 @@ function tabLibrary() {
 
 // --- add-a-product form ---
 let form = null;
-const blankForm = () => ({ link: '', name: '', type: 'sofa', w: '', d: '', h: '', price: '', img: null, color: '#cfc8ba', colors: [], cn: '', ch: '#888888' });
-const KEYWORDS = [['loveseat', 'loveseat'], ['sofa', 'sofa'], ['couch', 'sofa'], ['sectional', 'sofa'], ['recliner', 'recliner'], ['ottoman', 'ottoman'], ['armchair', 'chair'], ['chair', 'chair'],
+const blankForm = () => ({ editId: null, imgBig: null, busy: false, aiNote: '', link: '', name: '', type: 'sofa', w: '', d: '', h: '', price: '', img: null, color: '#cfc8ba', colors: [], cn: '', ch: '#888888' });
+const KEYWORDS = [['loveseat', 'loveseat'], ['sofa', 'sofa'], ['couch', 'sofa'], ['sectional', 'sofa'], ['recliner', 'reclinerchair'], ['glider', 'reclinerchair'], ['rocker', 'reclinerchair'], ['ottoman', 'ottoman'], ['armchair', 'chair'], ['chair', 'chair'],
   ['table', 'table'], ['lamp', 'lamp'], ['rug', 'rug'], ['pillow', 'pillow'], ['cabinet', 'cabinet'], ['console', 'cabinet'], ['dresser', 'cabinet'], ['chest', 'chest'], ['basket', 'basket'], ['plant', 'plant'], ['tv', 'tv'], ['art', 'picture'], ['print', 'picture']];
 function guessFromLink(url) {
   let slug = '';
@@ -327,12 +330,32 @@ function tabAdd() {
   const bind = (k, extra = {}) => el('input', Object.assign({ value: f[k], oninput: e => (f[k] = e.target.value) }, extra));
   const T = TYPES[f.type] || TYPES.box;
   return [
-    el('h3', { text: 'Add a product to your library' }),
+    el('h3', { text: f.editId ? 'Edit product' : 'Add a product to your library' }),
     el('div', { class: 'note', text: 'Paste a product link, add a photo, or both. Then confirm the type and measurements.' }),
     field('Product link (optional)', el('input', { value: f.link, placeholder: 'https://…', inputMode: 'url', onchange: e => { f.link = e.target.value.trim(); guessFromLink(f.link); renderPanel(); } })),
     el('div', { class: 'note', text: 'Most stores block apps from reading their pages, so the name is guessed from the link and you enter the size shown on the product page.' }),
-    field('Photo (optional)', el('input', { type: 'file', accept: 'image/*', onchange: async e => { const file = e.target.files[0]; if (!file) return; try { const r = await fileToDataURL(file); f.img = r.url; f.color = r.avg; renderPanel(); } catch (err) { toast(err.message); } } })),
+    field('Photo (optional)', el('input', { type: 'file', accept: 'image/*', onchange: async e => { const file = e.target.files[0]; if (!file) return; try { const r = await fileToDataURL(file); f.img = r.url; f.color = r.avg; f.imgBig = (await fileToDataURL(file, 1400, 0.85)).url; renderPanel(); } catch (err) { toast(err.message); } } })),
     f.img && el('div', { class: 'photos' }, el('img', { src: f.img, alt: '' })),
+    store.mode === 'online' ? [
+      el('button', { class: 'primary', style: { width: '100%', marginTop: '12px' }, disabled: !!f.busy, text: f.busy ? 'Reading the product\u2026 (can take a minute)' : '\u2728 Fill in with AI', onclick: async () => {
+        if (!f.link && !f.imgBig) return toast('Add a product link or a photo first.');
+        f.busy = true; f.aiNote = ''; renderPanel();
+        try {
+          const r = await store.aiProduct({ link: f.link, name: f.name, images: f.imgBig ? [f.imgBig] : [] });
+          if (r.name) f.name = r.name;
+          if (TYPES[r.type]) f.type = r.type;
+          for (const [k, v] of [['w', r.width_in], ['d', r.depth_in], ['h', r.height_in], ['price', r.price_usd]]) if (v > 0) f[k] = String(v);
+          const hex = c => /^#[0-9a-f]{6}$/i.test(c || '');
+          if (hex(r.default_color_hex)) f.color = r.default_color_hex.toLowerCase();
+          const cols = (r.colors || []).filter(c => c && c.name && hex(c.hex)).map(c => ({ name: String(c.name).slice(0, 40), hex: c.hex.toLowerCase() }));
+          if (cols.length) f.colors = cols;
+          f.aiNote = [r.notes, r.sources && r.sources.length ? 'Sources: ' + r.sources.join(', ') : ''].filter(Boolean).join(' ');
+          toast('Filled in. Please check the numbers before saving.');
+        } catch (e) { toast(e.message); }
+        f.busy = false; renderPanel();
+      } }),
+      el('div', { class: 'note', text: f.aiNote || 'AI looks up the product from the link and reads your photo, then fills in the type, size, price and colors. A photo or screenshot that shows the measurements helps most.' }),
+    ] : null,
     field('Name', bind('name', { placeholder: 'e.g. Blue velvet armchair' })),
     field('What is it?', el('select', { onchange: e => { f.type = e.target.value; renderPanel(); } }, Object.entries(TYPES).filter(([, t]) => t.group === 'furniture').map(([k, t]) => el('option', { value: k, text: t.label, selected: k === f.type })))),
     el('div', { class: 'grid3' },
@@ -350,13 +373,23 @@ function tabAdd() {
     el('div', { style: { height: '14px' } }),
     el('button', { class: 'primary', text: 'Save to library', style: { width: '100%' }, onclick: async () => {
       if (!f.name.trim()) return toast('Please give it a name.');
-      const it = { id: uid(), name: f.name.trim(), type: f.type, w: num(f.w, T.def.w), d: num(f.d, T.def.d), h: num(f.h, T.def.h), color: f.color };
+      const old = f.editId && catalog.find(x => x.id === f.editId), before = clone(catalog);
+      const it = { id: old ? old.id : uid(), name: f.name.trim(), type: f.type, w: num(f.w, T.def.w), d: num(f.d, T.def.d), h: num(f.h, T.def.h), color: f.color };
       if (f.link) it.link = f.link; if (f.price) it.price = num(f.price); if (f.img) it.img = f.img; if (f.colors.length) it.colors = f.colors;
-      if (T.def.props) it.props = clone(T.def.props);
-      catalog.unshift(it);
-      try { await store.saveCatalog(catalog); } catch { catalog.shift(); return toast('Could not save: storage is full.'); }
+      if (old && old.type === f.type) { if (old.props) it.props = old.props; if (old.color2) it.color2 = old.color2; }
+      else if (T.def.props) it.props = clone(T.def.props);
+      if (old) catalog[catalog.indexOf(old)] = it; else catalog.unshift(it);
+      try { await store.saveCatalog(catalog); } catch (e) { catalog = before; return toast('Could not save. ' + (e.message || '')); }
       form = null; tab = 'library'; renderPanel(); toast('Saved. Tap Add to place it in the room.');
     } }),
+    f.editId ? el('div', { class: 'row', style: { marginTop: '8px' } },
+      el('button', { text: 'Cancel', onclick: () => { form = null; tab = 'library'; renderPanel(); } }),
+      el('button', { class: 'danger', text: 'Remove from library', onclick: async () => {
+        if (!confirm(`Remove "${f.name}" from your library?`)) return;
+        catalog = catalog.filter(x => x.id !== f.editId);
+        try { await store.saveCatalog(catalog); } catch (e) { toast('Could not save. ' + (e.message || '')); }
+        form = null; tab = 'library'; renderPanel();
+      } })) : null,
   ];
 }
 

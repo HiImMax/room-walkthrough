@@ -21,7 +21,7 @@ function surfaceOf(o) {
   const y = o.y || 0;
   if (NOSURFACE.has(o.type) || RESTS.has(o.type)) return null;
   if (o.type === 'sofa' || o.type === 'loveseat' || o.type === 'chair') return y + Math.min(19, o.h * 0.48);
-  if (o.type === 'recliner') return y + Math.min(19, o.h * 0.47);
+  if (o.type === 'recliner' || o.type === 'reclinerchair') return y + Math.min(19, o.h * 0.47);
   if (o.type === 'fireplace') return y + 12;
   if (o.type === 'builtin') return y + Math.min(32, o.h * 0.34) + 1.5;
   return y + o.h;
