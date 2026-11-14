@@ -102,14 +102,27 @@ const online = {
   async getCatalog() { return rpc('app_get_catalog', { p_token: this.token }); },
   async saveCatalog(list) { await rpc('app_save_catalog', { p_token: this.token, p_items: list }); },
   // Ask the server-side AI helper to read a product link and/or photos and suggest form values.
-  async aiProduct(input) {
+  async _fn(name, body, fallback) {
     let r;
-    try { r = await fetch(`${SUPABASE_URL}/functions/v1/product-ai`, { method: 'POST', headers, body: JSON.stringify(Object.assign({ token: this.token }, input)) }); }
+    try { r = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, { method: 'POST', headers, body: JSON.stringify(Object.assign({ token: this.token }, body)) }); }
     catch { throw new Error('No connection. Check your internet and try again.'); }
     let j = null; try { j = await r.json(); } catch {}
-    if (r.status === 404) throw new Error('AI fill is not set up yet.');
-    if (!r.ok || !j || j.error) throw new Error((j && j.error) || 'The AI helper could not read that product. Please fill it in by hand.');
+    if (r.status === 404) throw new Error('This AI feature is not set up yet.');
+    if (!r.ok || !j || j.error) throw new Error((j && j.error) || fallback);
     return j;
+  },
+  async aiProduct(input) { return this._fn('product-ai', input, 'The AI helper could not read that product. Please fill it in by hand.'); },
+  // Make a 3D model from one product photo. Takes a minute or more, so we start it and then
+  // check back every few seconds. Returns the address of the finished model file.
+  async aiModel(image) {
+    const fail = 'The 3D model could not be made. Please try again.';
+    const { request_id } = await this._fn('model-ai', { action: 'start', image }, fail);
+    for (let i = 0; i < 90; i++) {
+      await new Promise(r => setTimeout(r, 4000));
+      const s = await this._fn('model-ai', { action: 'status', request_id }, fail);
+      if (s.status === 'done' && s.url) return s.url;
+    }
+    throw new Error('The 3D model is taking too long. Please try again later.');
   },
   browserRooms,
 };

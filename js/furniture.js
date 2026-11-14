@@ -3,6 +3,9 @@
 // x across the width, z across the depth (front faces +z), y up from 0 to h.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 let invalidate = () => {};
 export const setInvalidate = f => { invalidate = f; };
@@ -434,6 +437,46 @@ export const TYPES = {
   steps:     { label: 'Steps', build: steps, group: 'feature', accent: true, def: { w: 40, d: 22, h: 14, color: '#5b4030' } },
   railing:   { label: 'Railing', build: railing, group: 'feature', accent: true, def: { w: 72, d: 4, h: 36, color: '#5e4634' } },
 };
+
+// ---------- real 3D models (GLB files made from a product photo) ----------
+const gltfLoader = new GLTFLoader();
+gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+gltfLoader.setDRACOLoader(new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/'));
+const glbReady = new Map(), glbLoading = new Map(); // address -> loaded scene / load in progress
+const WHITE = new THREE.Color('#ffffff');
+
+// Put a loaded model into the object's group, stretched to the stated width x depth x height.
+function fitModel(o, g, scene) {
+  const p = o.props || {};
+  const piv = new THREE.Group(); piv.rotation.y = THREE.MathUtils.degToRad(p.yaw || 0); piv.add(scene.clone(true));
+  piv.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(piv), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+  const holder = new THREE.Group();
+  piv.position.set(-c.x, -box.min.y, -c.z); holder.add(piv);
+  holder.scale.set(o.w / Math.max(size.x, 1e-6), o.h / Math.max(size.y, 1e-6), o.d / Math.max(size.z, 1e-6));
+  const tint = col(o.color, '#ffffff');
+  holder.traverse(m => {
+    if (!m.isMesh) return;
+    m.castShadow = m.receiveShadow = true;
+    if (!tint.equals(WHITE)) { m.material = m.material.clone(); m.material.color.multiply(tint); }
+    m.material.envMapIntensity = 0.5;
+  });
+  g.add(holder);
+}
+
+function model3d(o, g, k) {
+  const url = o.props && o.props.glb;
+  if (url && glbReady.has(url)) return fitModel(o, g, glbReady.get(url));
+  // see-through stand-in while the model downloads
+  const ph = k.rbox(o.w, o.h, o.d, new THREE.MeshStandardMaterial({ color: 0xd9d4ca, transparent: true, opacity: 0.45, roughness: 0.9 }), 0, 0, 0, 1.5);
+  ph.userData.noShadow = true;
+  if (!url) return;
+  if (!glbLoading.has(url)) glbLoading.set(url, gltfLoader.loadAsync(url).then(gl => { glbReady.set(url, gl.scene); return gl.scene; }));
+  glbLoading.get(url)
+    .then(scene => { if (!g.parent) return; g.remove(ph); ph.geometry.dispose(); fitModel(o, g, scene); invalidate(); })
+    .catch(e => { console.warn('3D model failed to load', e); glbLoading.delete(url); ph.material.opacity = 0.85; invalidate(); });
+}
+TYPES.model = { label: '3D model', build: model3d, group: 'hidden', def: { w: 36, d: 36, h: 36, color: '#ffffff' } };
 
 const SPARSE = new Set(['bins', 'plant', 'railing', 'lamp']);
 export function buildObject(o) {

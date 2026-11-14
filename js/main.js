@@ -77,6 +77,7 @@ function place(base) {
   };
   for (const k of ['colors', 'link', 'price']) if (base[k]) o[k] = clone(base[k]);
   if (base.img && (o.type === 'box' || o.type === 'picture')) o.props.img = base.img;
+  if (base.glb) { o.props.kind = o.type; o.props.glb = base.glb; o.type = 'model'; o.color = '#ffffff'; delete o.color2; } // drawn with its own 3D model
   scene.objects.push(o); viewer.addObject(o); select({ kind: 'obj', id: o.id }); commit();
   if (narrow()) closePanel(); else { tab = 'selected'; renderPanel(); }
   toast('Added. Drag the highlighted item into place.');
@@ -258,6 +259,8 @@ function tabSelected() {
     el('h3', { text: 'Size (inches)' }),
     el('div', { class: 'grid3' }, field('Width', numIn(o.w, setDim('w'))), field('Depth', numIn(o.d, setDim('d'))), field('Height', numIn(o.h, setDim('h')))),
     el('div', { class: 'grid2' }, field('Height off floor', numIn(o.y || 0, setDim('y'))), field('Rotation (°)', numIn(o.rot || 0, setDim('rot'), 5))),
+    o.type === 'model' && el('button', { text: 'Turn the model a quarter turn inside its footprint', onclick: () => { (o.props = o.props || {}).yaw = (((o.props.yaw || 0) + 90) % 360); upd(); commit(); } }),
+    o.type === 'model' && el('div', { class: 'note', text: 'Use this if the 3D model faces the wrong way for its width and depth. Main color above tints the model; white leaves it as made.' }),
     (o.link || o.price) && el('h3', { text: 'Product' }),
     o.price && el('div', { text: '$' + o.price }),
     o.link && el('a', { class: 'link', href: o.link, target: '_blank', rel: 'noopener', text: 'View product page ↗' }),
@@ -282,11 +285,11 @@ function tabLibrary() {
     catalog.length ? catalog.map(it => el('div', { class: 'item' },
       el('div', { class: 'thumb', style: it.img ? { backgroundImage: `url(${it.img})` } : { background: it.color } }),
       el('div', { class: 'meta' }, el('b', { text: it.name }),
-        el('span', { text: `${it.w} × ${it.d} × ${it.h} in${it.price ? ' · $' + it.price : ''} ` }),
+        el('span', { text: `${it.w} × ${it.d} × ${it.h} in${it.price ? ' · $' + it.price : ''}${it.glb ? ' · 3D' : ''} ` }),
         it.link && el('a', { class: 'link', href: it.link, target: '_blank', rel: 'noopener', text: 'view', style: { fontSize: '12px' } })),
       el('button', { class: 'primary', text: 'Add', onclick: () => place(it) }),
       el('button', { text: 'Edit', onclick: () => {
-        form = Object.assign(blankForm(), { editId: it.id, link: it.link || '', name: it.name, type: TYPES[it.type] ? it.type : 'box', w: it.w, d: it.d, h: it.h, price: it.price || '', img: it.img || null, color: it.color || '#cfc8ba', colors: clone(it.colors || []) });
+        form = Object.assign(blankForm(), { editId: it.id, glb: it.glb || null, link: it.link || '', name: it.name, type: TYPES[it.type] ? it.type : 'box', w: it.w, d: it.d, h: it.h, price: it.price || '', img: it.img || null, color: it.color || '#cfc8ba', colors: clone(it.colors || []) });
         tab = 'add'; renderPanel();
       } })))
       : el('div', { class: 'note', text: 'No products yet. Use the Add item tab to add one from a link or a photo.' }),
@@ -298,7 +301,7 @@ function tabLibrary() {
 
 // --- add-a-product form ---
 let form = null;
-const blankForm = () => ({ editId: null, imgBig: null, busy: false, aiNote: '', link: '', name: '', type: 'sofa', w: '', d: '', h: '', price: '', img: null, color: '#cfc8ba', colors: [], cn: '', ch: '#888888' });
+const blankForm = () => ({ editId: null, imgBig: null, busy: false, aiNote: '', glb: null, busy3d: false, link: '', name: '', type: 'sofa', w: '', d: '', h: '', price: '', img: null, color: '#cfc8ba', colors: [], cn: '', ch: '#888888' });
 const KEYWORDS = [['loveseat', 'loveseat'], ['sofa', 'sofa'], ['couch', 'sofa'], ['sectional', 'sofa'], ['recliner', 'reclinerchair'], ['glider', 'reclinerchair'], ['rocker', 'reclinerchair'], ['ottoman', 'ottoman'], ['armchair', 'chair'], ['chair', 'chair'],
   ['table', 'table'], ['lamp', 'lamp'], ['rug', 'rug'], ['pillow', 'pillow'], ['cabinet', 'cabinet'], ['console', 'cabinet'], ['dresser', 'cabinet'], ['chest', 'chest'], ['basket', 'basket'], ['plant', 'plant'], ['tv', 'tv'], ['art', 'picture'], ['print', 'picture']];
 function guessFromLink(url) {
@@ -355,6 +358,15 @@ function tabAdd() {
         f.busy = false; renderPanel();
       } }),
       el('div', { class: 'note', text: f.aiNote || 'AI looks up the product from the link and reads your photo, then fills in the type, size, price and colors. A photo or screenshot that shows the measurements helps most.' }),
+      el('button', { style: { width: '100%', marginTop: '10px' }, disabled: !!f.busy3d, class: f.glb && !f.busy3d ? 'on' : '',
+        text: f.busy3d ? 'Making the 3D model… (1 to 3 minutes)' : f.glb ? '✓ 3D model ready (tap to remake)' : 'Make a 3D model from the photo (AI)', onclick: async () => {
+          if (!f.imgBig) return toast('Choose a photo of the product first, using Photo above.');
+          f.busy3d = true; renderPanel();
+          try { f.glb = await store.aiModel(f.imgBig); toast('3D model ready. Tap Save to keep it.'); } catch (e) { toast(e.message); }
+          f.busy3d = false; if (form === f && tab === 'add') renderPanel();
+        } }),
+      el('div', { class: 'note', text: f.glb ? 'This product will be drawn with its own 3D model, stretched to the size below. Tap Save to keep it.'
+        : 'Builds a real 3D shape from the photo above. Works best with one product, fully in view, on a plain background. You can keep using the app while it works. Limit: 5 per day.' }),
     ] : null,
     field('Name', bind('name', { placeholder: 'e.g. Blue velvet armchair' })),
     field('What is it?', el('select', { onchange: e => { f.type = e.target.value; renderPanel(); } }, Object.entries(TYPES).filter(([, t]) => t.group === 'furniture').map(([k, t]) => el('option', { value: k, text: t.label, selected: k === f.type })))),
@@ -376,6 +388,7 @@ function tabAdd() {
       const old = f.editId && catalog.find(x => x.id === f.editId), before = clone(catalog);
       const it = { id: old ? old.id : uid(), name: f.name.trim(), type: f.type, w: num(f.w, T.def.w), d: num(f.d, T.def.d), h: num(f.h, T.def.h), color: f.color };
       if (f.link) it.link = f.link; if (f.price) it.price = num(f.price); if (f.img) it.img = f.img; if (f.colors.length) it.colors = f.colors;
+      if (f.glb) it.glb = f.glb;
       if (old && old.type === f.type) { if (old.props) it.props = old.props; if (old.color2) it.color2 = old.color2; }
       else if (T.def.props) it.props = clone(T.def.props);
       if (old) catalog[catalog.indexOf(old)] = it; else catalog.unshift(it);
