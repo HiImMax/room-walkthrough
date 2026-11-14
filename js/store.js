@@ -104,7 +104,7 @@ const online = {
   // Ask the server-side AI helper to read a product link and/or photos and suggest form values.
   async aiProduct(input) {
     let r;
-    try { r = await fetch(`/functions/v1/product-ai`, { method: 'POST', headers, body: JSON.stringify(Object.assign({ token: this.token }, input)) }); }
+    try { r = await fetch(`${SUPABASE_URL}/functions/v1/product-ai`, { method: 'POST', headers, body: JSON.stringify(Object.assign({ token: this.token }, input)) }); }
     catch { throw new Error('No connection. Check your internet and try again.'); }
     let j = null; try { j = await r.json(); } catch {}
     if (r.status === 404) throw new Error('AI fill is not set up yet.');
