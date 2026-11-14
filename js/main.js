@@ -457,7 +457,7 @@ function renderAuth(mode = 'in') {
   card.append(
     el('h1', { text: 'Room Walkthrough' }),
     el('div', { class: 'note', text: mode === 'in' ? 'Sign in to open your saved rooms.' : 'Create an account with the invite key you were given.' }),
-    field('Username', u), field('Password', p), mode === 'up' && field('Invite key', k), err,
+    field('Username', u), field('Password', p), mode === 'up' ? field('Invite key', k) : '', err,
     el('button', { class: 'primary', style: { width: '100%', marginTop: '6px' }, text: mode === 'in' ? 'Sign in' : 'Create account', onclick: go }),
     el('div', { class: 'switch' }, mode === 'in' ? 'Have an invite key? ' : 'Already have an account? ', el('a', { text: mode === 'in' ? 'Create an account' : 'Sign in', onclick: () => renderAuth(mode === 'in' ? 'up' : 'in') })));
   $('auth').classList.add('show');
