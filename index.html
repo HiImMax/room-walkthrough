@@ -110,6 +110,7 @@ h3:first-child { margin-top:4px; }
 a.link { color:var(--accent); }
 #hint { transition:opacity .4s; } #hint.hide { opacity:0; pointer-events:none; }
 @media (max-width:540px) { .lbl, #saveState { display:none; } #roomName { max-width:36vw; } #topbar { gap:6px; } #selbar .nm { display:none; } #selbar button { padding:6px 7px; min-width:36px; font-size:14px; } #selbar { overflow-x:auto; } }
+@media (max-height:520px) { #tools { top:calc(64px + env(safe-area-inset-top)); flex-direction:row; } #hint { top:calc(110px + env(safe-area-inset-top)); } }
 @media (hover:none) { #hint .desk { display:none; } }
 @media (hover:hover) { #hint .touch { display:none; } }
 </style>
