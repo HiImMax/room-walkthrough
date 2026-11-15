@@ -112,12 +112,35 @@ async function buildFromPhotos(size) {
   building = true;
   notice('Reading your photos…', `The AI is working out the room from ${Math.min(list.length, BUILD_PHOTOS)} photo(s). This takes one to two minutes. Keep this page open.`);
   try {
-    const ai = await store.aiRoom({ photos: list.slice(0, BUILD_PHOTOS), reference: scene.reference, size: size || null });
-    const n = applyLayout(scene, ai);
-    viewer.load(scene); sel = null; commit(); refreshAll();
-    notice('Room built from your photos', `${n} things were placed. This is a starting point, not an exact copy: check the sizes and nudge anything that is off. ${ai.notes || ''}`, true);
+    const input = { photos: list.slice(0, BUILD_PHOTOS), reference: scene.reference, size: size || null };
+    let ai = await store.aiRoom(input), n = applyLayout(scene, ai), checked = null;
+    viewer.load(scene); sel = null; refreshAll();
+    // Second pass: show the AI its own room next to the photos and let it correct sizes and positions.
+    notice('Checking the room against your photos…', `${n} things were placed. The AI is now comparing the room it built with your photos to correct sizes and positions. About another minute.`);
+    try {
+      const fixed = await store.aiRoom(Object.assign({ action: 'check', views: await roomViews(), layout: { room: ai.room, items: ai.items } }, input));
+      checked = fixed.changes || []; ai = fixed; n = applyLayout(scene, ai); viewer.load(scene);
+    } catch (e) { checked = e.message; }
+    commit(); refreshAll();
+    const report = typeof checked === 'string' ? `The check against your photos did not finish (${checked}), so sizes are from the first pass only.`
+      : checked.length ? `Checked against your photos and corrected: ${checked.join('; ')}.` : 'Checked against your photos: nothing needed correcting.';
+    notice('Room built from your photos', `${n} things were placed. ${report} This is still a starting point, not an exact copy: nudge anything that is off. ${ai.notes || ''}`, true);
   } catch (e) { notice('The room could not be built', e.message, true); }
   building = false;
+}
+// Pictures of the room as drawn: from straight above, then from each corner looking in.
+async function roomViews() {
+  const { w, l, h } = scene.room, out = [], c = viewer.canvas;
+  const keep = { view: viewer.view, fly: Object.assign({}, viewer.fly), top: Object.assign({}, viewer.top) };
+  const snap = async () => out.push((await shrink(viewer.snapshot(), 1024, 0.8)).url);
+  try {
+    viewer.setView('top'); Object.assign(viewer.top, { cx: w / 2, cz: l / 2, span: Math.max(l, w / (c.clientWidth / Math.max(1, c.clientHeight))) * 1.12 }); await snap();
+    viewer.setView('fly');
+    for (const [x, z] of [[14, l - 14], [w - 14, l - 14], [w - 14, 14], [14, 14]]) {
+      Object.assign(viewer.fly, { x, z, y: Math.min(h - 10, 64), yaw: Math.atan2(x - w / 2, z - l / 2), pitch: -0.22 }); await snap();
+    }
+  } finally { viewer.setView(keep.view); Object.assign(viewer.fly, keep.fly); Object.assign(viewer.top, keep.top); viewer.dirty = true; }
+  return out;
 }
 
 // ---------- object actions ----------
