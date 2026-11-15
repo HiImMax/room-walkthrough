@@ -187,6 +187,13 @@ export class Viewer {
     };
   }
 
+  // True when the middle of an object falls inside the current picture.
+  inView(o) {
+    const cam = this.view === 'fly' ? this.persp : this.ortho; cam.updateMatrixWorld();
+    const v = new THREE.Vector3(o.x, (o.y || 0) + o.h / 2, o.z).project(cam);
+    return v.z < 1 && Math.abs(v.x) < 1.15 && Math.abs(v.y) < 1.15;
+  }
+
   // Picture of the current view without selection outlines.
   snapshot() {
     for (const h of this.helpers) h.visible = false;

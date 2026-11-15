@@ -76,6 +76,7 @@ function place(base) {
     props: clone(base.props || d.props || {}),
   };
   for (const k of ['colors', 'link', 'price']) if (base[k]) o[k] = clone(base[k]);
+  if (base.id) o.cat = base.id;   // which library product this is, so renders can use its photo
   if (base.img && (o.type === 'box' || o.type === 'picture')) o.props.img = base.img;
   if (base.glb) { o.props.kind = o.type; o.props.glb = base.glb; o.type = 'model'; o.color = '#ffffff'; delete o.color2; } // drawn with its own 3D model
   scene.objects.push(o); viewer.addObject(o); select({ kind: 'obj', id: o.id }); commit();
@@ -390,6 +391,8 @@ function tabAdd() {
       const it = { id: old ? old.id : uid(), name: f.name.trim(), type: f.type, w: num(f.w, T.def.w), d: num(f.d, T.def.d), h: num(f.h, T.def.h), color: f.color };
       if (f.link) it.link = f.link; if (f.price) it.price = num(f.price); if (f.img) it.img = f.img; if (f.colors.length) it.colors = f.colors;
       if (f.glb) it.glb = f.glb;
+      // A larger copy of the product photo, used by the Render button.
+      if (f.imgBig) { try { it.imgR = (await shrink(f.imgBig, 1000, 0.8)).url; } catch {} } else if (old && old.imgR && old.img === f.img) it.imgR = old.imgR;
       if (old && old.type === f.type) { if (old.props) it.props = old.props; if (old.color2) it.color2 = old.color2; }
       else if (T.def.props) it.props = clone(T.def.props);
       if (old) catalog[catalog.indexOf(old)] = it; else catalog.unshift(it);
@@ -565,12 +568,16 @@ function renderDialog(state, data) {
   if (state === 'ask') card.append(
     el('h2', { text: 'Realistic picture of this view' }),
     el('img', { class: 'big', src: data.view, alt: 'Current view' }),
-    el('div', { class: 'note', text: photos.length
-      ? `An AI will redraw this view as a photo, using your ${photos.length} room photo(s) to match the real materials and light. It takes up to a minute.`
-      : 'An AI will redraw this view as a photo. Tip: add photos of the real room under Menu > Room first, so it can match your real carpet, paint and light.' }),
+    el('div', { class: 'note', text: (photos.length
+      ? `An AI will make a photo of your real room from this view, using your ${photos.length} room photo(s) for how everything looks and this view for where everything is.`
+      : 'An AI will redraw this view as a photo. Tip: add photos of the real room under Menu > Room first, so the picture looks like your actual room.')
+      + (data.products.length ? ` Product photos used: ${data.products.map(p => p.name).join(', ')}.` : '') + ' It takes up to a minute.' }),
+    photos.length ? el('label', { class: 'row', style: { gap: '8px', alignItems: 'center' } },
+      el('input', { type: 'checkbox', class: 'fit', style: { width: '22px', minHeight: '22px' }, checked: !!data.keepColors, onchange: e => (data.keepColors = e.target.checked) }),
+      el('span', { text: 'Keep the wall, floor and furniture colors from this view (tick this if you changed colors here)' })) : '',
     el('div', { class: 'row' }, el('button', { class: 'primary', text: 'Make the picture', onclick: async () => {
       if (rendering) return; rendering = true; renderDialog('work', data);
-      try { renderDialog('done', Object.assign({ url: await store.aiRender(data.view, photos, data.aspect) }, data)); }
+      try { renderDialog('done', Object.assign({ url: await store.aiRender(data.view, { photos, aspect: data.aspect, products: data.products, items: data.items, keepColors: !!data.keepColors }) }, data)); }
       catch (e) { renderDialog('fail', Object.assign({ error: e.message }, data)); }
       rendering = false;
     } }), close));
@@ -593,7 +600,15 @@ $('renderBtn').onclick = async () => {
   try {
     const v = await shrink(viewer.snapshot(), 1536, 0.88);
     const aspect = Object.keys(RATIOS).reduce((a, b) => Math.abs(Math.log(RATIOS[b] / v.ratio)) < Math.abs(Math.log(RATIOS[a] / v.ratio)) ? b : a);
-    renderDialog('ask', { view: v.url, aspect });
+    // Tell the AI what is in the picture, and send the product photo of anything that has one.
+    const seen = scene.objects.filter(o => !['wall', 'platform'].includes(o.type) && viewer.inView(o));
+    const products = [];
+    for (const o of seen) {
+      const it = catalog && (catalog.find(c => c.id === o.cat) || catalog.find(c => c.name === o.name));
+      const image = it && (it.imgR || it.img);
+      if (image && products.length < 4 && !products.some(p => p.name === o.name)) products.push({ name: o.name, image });
+    }
+    renderDialog('ask', { view: v.url, aspect, products, items: [...new Set(seen.map(o => o.name))].slice(0, 40) });
   } catch (e) { toast(e.message); }
 };
 

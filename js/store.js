@@ -126,9 +126,9 @@ const online = {
   },
   // Turn a picture of the current view into a realistic photo, guided by the room's real photos.
   // Returns the address of the finished picture.
-  async aiRender(view, photos, aspect) {
+  async aiRender(view, opts) {
     const fail = 'The realistic picture could not be made. Please try again.';
-    const { request_id } = await this._fn('render-ai', { action: 'start', view, photos, aspect }, fail);
+    const { request_id } = await this._fn('render-ai', Object.assign({ action: 'start', view }, opts), fail);
     for (let i = 0; i < 60; i++) {
       await new Promise(r => setTimeout(r, 4000));
       const s = await this._fn('render-ai', { action: 'status', request_id }, fail);
