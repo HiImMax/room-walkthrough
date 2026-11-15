@@ -2,6 +2,7 @@ import { Viewer, SIDES } from './scene.js';
 import { TYPES } from './furniture.js';
 import { store } from './store.js';
 import { sampleScene, seedCatalog, emptyRoom, PAINTS, FLOORS, uid } from './data.js';
+import { applyLayout } from './layout.js';
 
 // ---------- tiny DOM helpers ----------
 const $ = id => document.getElementById(id);
@@ -60,9 +61,64 @@ async function openRoom(id) {
   if (saveT) await flushSave();
   const s = await store.loadRoom(id); if (!s) return toast('That room could not be opened.');
   scene = s; roomId = id; history = [JSON.stringify(scene)]; sel = null;
+  photos = []; photoStore = true;
+  try { photos = await store.listPhotos(id); } catch { photoStore = false; }   // older setups keep photos inside the room
   viewer.load(scene); $('saveState').textContent = 'Saved'; refreshAll();
 }
 async function createRoom(s) { const id = uid(); await store.saveRoom(id, s); await openRoom(id); }
+
+// ---------- photos of the real room ----------
+// New photos are stored on their own (photos); rooms made earlier may still carry a few inside
+// the room itself (scene.refPhotos). Both are shown and used.
+let photos = [], photoStore = true;
+const MAX_PHOTOS = 24, MAX_OLD = 3, RENDER_PHOTOS = 3, BUILD_PHOTOS = 12;
+const allPhotos = () => photos.map(p => p.data).concat((scene && scene.refPhotos) || []);
+const roomPhoto = async file => (await fileToDataURL(file, 1100, 0.78)).url;
+async function addRoomPhotos(list) {
+  let added = 0;
+  for (const data of list) {
+    if (photoStore) {
+      if (photos.length >= MAX_PHOTOS) { toast(`A room can hold up to ${MAX_PHOTOS} photos.`); break; }
+      const id = uid();
+      try { await store.addPhoto(roomId, id, data); photos.push({ id, data }); added++; } catch (e) { toast(e.message); break; }
+    } else {
+      scene.refPhotos = scene.refPhotos || [];
+      if (scene.refPhotos.length >= MAX_OLD) { toast('More photos need the latest server setup.'); break; }
+      scene.refPhotos.push(data); added++; commit();
+    }
+  }
+  return added;
+}
+async function removeRoomPhoto(i) {
+  if (i < photos.length) { const p = photos[i]; try { await store.deletePhoto(roomId, p.id); photos.splice(i, 1); } catch (e) { toast(e.message); } }
+  else { scene.refPhotos.splice(i - photos.length, 1); commit(); }
+}
+
+// Ask the AI to lay the room out from its photos. Replaces what is in the room (Undo brings it back).
+let building = false;
+function notice(title, text, done) {
+  const card = $('renderCard'); card.innerHTML = '';
+  card.append(el('h2', { text: title }), el('div', { class: 'note', text }));
+  if (done) card.append(el('div', { class: 'row' }, el('button', { class: 'primary', text: 'OK', onclick: () => $('render').classList.remove('show') })));
+  $('render').classList.add('show');
+}
+async function buildFromPhotos(size) {
+  const list = allPhotos();
+  if (building) return;
+  if (!store.aiRoom) return toast('Building a room from photos needs the online version of the app.');
+  if (!list.length) return toast('Add photos of the room first.');
+  if (!scene.reference) return toast('First enter one thing you measured, for example: TV = 57 in wide.');
+  if (scene.objects.length && !confirm('Replace everything in this room with a new layout made from the photos? Undo brings the old one back.')) return;
+  building = true;
+  notice('Reading your photos…', `The AI is working out the room from ${Math.min(list.length, BUILD_PHOTOS)} photo(s). This takes one to two minutes. Keep this page open.`);
+  try {
+    const ai = await store.aiRoom({ photos: list.slice(0, BUILD_PHOTOS), reference: scene.reference, size: size || null });
+    const n = applyLayout(scene, ai);
+    viewer.load(scene); sel = null; commit(); refreshAll();
+    notice('Room built from your photos', `${n} things were placed. This is a starting point, not an exact copy: check the sizes and nudge anything that is off. ${ai.notes || ''}`, true);
+  } catch (e) { notice('The room could not be built', e.message, true); }
+  building = false;
+}
 
 // ---------- object actions ----------
 function select(s) { sel = s; viewer.select(s); renderSel(); }
@@ -314,7 +370,6 @@ function guessFromLink(url) {
   const k = KEYWORDS.find(([w]) => new RegExp(`\\b${w}\\b`).test(lower)); if (k) form.type = k[1];
   const m = /(\d{2,3})[ -]?(inch|in\b|")/.exec(lower); if (m && !form.w) form.w = m[1];
 }
-const MAX_REF = 3;   // real-room photos kept with a room and sent with a render
 function fileToDataURL(file, max = 360, q = 0.8) {
   return new Promise((res, rej) => {
     const img = new Image(), url = URL.createObjectURL(file);
@@ -429,19 +484,35 @@ function tabRoom() {
     el('div', { class: 'note', text: 'Soft shading adds realistic contact shadows in the 3D view. Turn it off if the view feels slow on your device.' }),
     el('button', { text: 'Reset camera', onclick: () => { viewer.resetCamera(); if (narrow()) closePanel(); } }),
     el('h3', { text: 'Photos of the real room' }),
-    el('div', { class: 'note', text: `Up to ${MAX_REF} photos. The Render button uses them to match your real carpet, paint, wood and light.` }),
-    scene.refPhotos && scene.refPhotos.length ? el('div', { class: 'photos' }, scene.refPhotos.map((p, i) => el('div', { class: 'ph' }, el('img', { src: p, alt: '' }),
-      el('button', { text: '✕', title: 'Remove photo', onclick: () => { scene.refPhotos.splice(i, 1); commit(); renderPanel(); } })))) : null,
-    (scene.refPhotos || []).length < MAX_REF ? field('Add photos', el('input', { type: 'file', accept: 'image/*', multiple: true, onchange: async e => {
-      scene.refPhotos = scene.refPhotos || [];
-      for (const file of [...e.target.files].slice(0, MAX_REF - scene.refPhotos.length)) { try { scene.refPhotos.push((await fileToDataURL(file, 1100, 0.78)).url); } catch (err) { toast(err.message); } }
-      commit(); renderPanel();
-    } })) : null,
-    scene.reference ? el('div', { class: 'note', text: `Reference measurement: ${scene.reference}` }) : null,
+    el('div', { class: 'note', text: `${allPhotos().length} photo(s), up to ${MAX_PHOTOS}. They are used to build the room and to make Render pictures look like your real room.` }),
+    allPhotos().length ? el('div', { class: 'photos' }, allPhotos().map((p, i) => el('div', { class: 'ph' }, el('img', { src: p, alt: '' }),
+      el('button', { text: '✕', title: 'Remove photo', onclick: async () => { await removeRoomPhoto(i); renderPanel(); } })))) : null,
+    field('Add photos', el('input', { type: 'file', accept: 'image/*', multiple: true, onchange: async e => {
+      const list = []; for (const file of [...e.target.files]) { try { list.push(await roomPhoto(file)); } catch (err) { toast(err.message); } }
+      const n = await addRoomPhotos(list); if (n) toast(`${n} photo(s) added.`); renderPanel();
+    } })),
+    el('h3', { text: 'Build the room from its photos' }),
+    field('One thing you measured', el('input', { value: scene.reference || '', placeholder: 'e.g. TV = 57 in wide', onchange: e => { scene.reference = e.target.value.trim(); commit(); } })),
+    el('button', { class: 'primary', text: '✨ Build room from photos (AI)', onclick: () => buildFromPhotos(null) }),
+    el('div', { class: 'note', text: 'The AI reads the photos and places walls, windows and furniture as simple shapes. It replaces what is in this room now, and gives a starting point to correct, not an exact copy.' }),
   ];
 }
 
 let newRoom = null;
+// Create the room from the New room form; with `build`, also lay it out from its photos.
+async function makeRoom(build) {
+  const n = newRoom;
+  if (build && !n.photos.length) return toast('Choose photos of the room first.');
+  if (build && !(n.ref.trim() && num(n.refW) > 0)) return toast('Enter the thing you measured and its width first.');
+  const s = emptyRoom(n.name.trim() || 'New room', num(n.w, 168), num(n.l, 228), num(n.h, 96));
+  if (n.ref.trim() && num(n.refW) > 0) s.reference = `${n.ref.trim()} = ${num(n.refW)} in wide`;
+  const size = num(n.w) > 0 && num(n.l) > 0 ? { w: num(n.w), l: num(n.l), h: num(n.h) } : { h: num(n.h) };
+  newRoom = null;
+  try { await createRoom(s); } catch (e) { newRoom = n; return toast('Could not save. ' + (e.message || '')); }
+  await addRoomPhotos(n.photos);
+  if (build) { if (narrow()) closePanel(); await buildFromPhotos(size); } else toast('Room created');
+  renderPanel();
+}
 function tabRooms() {
   newRoom = newRoom || { name: '', w: '', l: '', h: '96', ref: '', refW: '', photos: [] };
   const n = newRoom, bind = (k, extra = {}) => el('input', Object.assign({ value: n[k], oninput: e => (n[k] = e.target.value) }, extra));
@@ -461,22 +532,19 @@ function tabRooms() {
     ] : null,
     el('h3', { text: 'New room' }),
     field('Room name', bind('name', { placeholder: 'e.g. Bedroom' })),
-    field('Photos of the room (optional)', el('input', { type: 'file', accept: 'image/*', multiple: true, onchange: async e => {
-      for (const file of [...e.target.files].slice(0, 6 - n.photos.length)) { try { n.photos.push((await fileToDataURL(file, 520, 0.7)).url); } catch (err) { toast(err.message); } }
+    field('Photos of the room', el('input', { type: 'file', accept: 'image/*', multiple: true, onchange: async e => {
+      for (const file of [...e.target.files].slice(0, MAX_PHOTOS - n.photos.length)) { try { n.photos.push(await roomPhoto(file)); } catch (err) { toast(err.message); } }
       renderPanel();
     } })),
-    n.photos.length ? el('div', { class: 'photos' }, n.photos.map(p => el('img', { src: p, alt: '' }))) : null,
-    n.photos.length ? el('div', { class: 'note', text: 'For scale, measure one easy object in the photos (a TV, a table, a doorway) and enter it here.' }) : null,
-    n.photos.length ? el('div', { class: 'row' }, field('Reference object', bind('ref', { placeholder: 'e.g. TV' })), field('Its width (in)', bind('refW', { type: 'number', inputMode: 'decimal' }))) : null,
-    el('div', { class: 'grid3' }, field('Width (in)', bind('w', { type: 'number', inputMode: 'decimal', placeholder: '168' })), field('Length (in)', bind('l', { type: 'number', inputMode: 'decimal', placeholder: '228' })), field('Ceiling (in)', bind('h', { type: 'number', inputMode: 'decimal' }))),
-    el('div', { class: 'note', text: 'Turning photos into a 3D room automatically is not available in this version. Photos are saved with the room as a reference while you add the furniture from the Library.' }),
+    n.photos.length ? el('div', { class: 'photos' }, n.photos.map((p, i) => el('div', { class: 'ph' }, el('img', { src: p, alt: '' }), el('button', { text: '✕', title: 'Remove photo', onclick: () => { n.photos.splice(i, 1); renderPanel(); } })))) : null,
+    el('div', { class: 'note', text: `${n.photos.length ? n.photos.length + ' photo(s) chosen. ' : ''}Wide shots from each corner work best, up to ${MAX_PHOTOS}. For scale, measure one easy thing in the photos (a TV, a table, a doorway) and enter it here.` }),
+    el('div', { class: 'row' }, field('Thing you measured', bind('ref', { placeholder: 'e.g. TV' })), field('Its width (in)', bind('refW', { type: 'number', inputMode: 'decimal' }))),
+    el('div', { class: 'grid3' }, field('Width (in)', bind('w', { type: 'number', inputMode: 'decimal', placeholder: 'if known' })), field('Length (in)', bind('l', { type: 'number', inputMode: 'decimal', placeholder: 'if known' })), field('Ceiling (in)', bind('h', { type: 'number', inputMode: 'decimal' }))),
+    el('div', { class: 'note', text: 'Build from photos: the AI reads the photos and places walls, windows and furniture as simple shapes, as a starting point for you to correct. Empty room: just the walls, to furnish from the Library.' }),
     el('div', { class: 'row' },
-      el('button', { class: 'primary', text: 'Create room', onclick: async () => {
-        const s = emptyRoom(n.name.trim() || 'New room', num(n.w, 168), num(n.l, 228), num(n.h, 96));
-        s.refPhotos = n.photos; if (n.ref && n.refW) s.reference = `${n.ref} = ${n.refW} in wide`;
-        newRoom = null;
-        try { await createRoom(s); toast('Room created'); } catch { toast('Could not save: storage is full. Try fewer photos.'); }
-      } }),
+      el('button', { class: 'primary', text: '✨ Build from photos', onclick: () => makeRoom(true) }),
+      el('button', { text: 'Empty room', onclick: () => makeRoom(false) })),
+    el('div', { class: 'row' },
       el('button', { text: 'Sample living room', onclick: async () => { await createRoom(sampleScene()); toast('Sample room created'); } })),
   ];
   store.listRooms().then(list => {
@@ -564,7 +632,9 @@ let rendering = false;
 function renderDialog(state, data) {
   const card = $('renderCard'); card.innerHTML = '';
   const close = el('button', { text: 'Close', onclick: () => $('render').classList.remove('show') });
-  const photos = (scene.refPhotos || []).slice(0, MAX_REF);
+  const every = allPhotos();
+  if (!data.pick) data.pick = every.slice(0, RENDER_PHOTOS).map((_, i) => i);
+  const photos = data.pick.map(i => every[i]).filter(Boolean);
   if (state === 'ask') card.append(
     el('h2', { text: 'Realistic picture of this view' }),
     el('img', { class: 'big', src: data.view, alt: 'Current view' }),
@@ -572,6 +642,12 @@ function renderDialog(state, data) {
       ? `An AI will make a photo of your real room from this view, using your ${photos.length} room photo(s) for how everything looks and this view for where everything is.`
       : 'An AI will redraw this view as a photo. Tip: add photos of the real room under Menu > Room first, so the picture looks like your actual room.')
       + (data.products.length ? ` Product photos used: ${data.products.map(p => p.name).join(', ')}.` : '') + ' It takes up to a minute.' }),
+    every.length > RENDER_PHOTOS ? el('div', {},
+      el('div', { class: 'note', text: `Tap to choose the ${RENDER_PHOTOS} photos that best show the walls in this view:` }),
+      el('div', { class: 'photos' }, every.map((p, i) => el('img', { src: p, alt: '', style: { cursor: 'pointer', outline: data.pick.includes(i) ? '3px solid var(--accent)' : 'none', opacity: data.pick.includes(i) ? '1' : '.5' }, onclick: () => {
+        if (data.pick.includes(i)) data.pick = data.pick.filter(x => x !== i); else { data.pick.push(i); if (data.pick.length > RENDER_PHOTOS) data.pick.shift(); }
+        renderDialog('ask', data);
+      } })))) : '',
     photos.length ? el('label', { class: 'row', style: { gap: '8px', alignItems: 'center' } },
       el('input', { type: 'checkbox', class: 'fit', style: { width: '22px', minHeight: '22px' }, checked: !!data.keepColors, onchange: e => (data.keepColors = e.target.checked) }),
       el('span', { text: 'Keep the wall, floor and furniture colors from this view (tick this if you changed colors here)' })) : '',

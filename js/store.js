@@ -62,6 +62,9 @@ const local = {
   },
   async getCatalog() { return get('catalog:' + this.user, null); },
   async saveCatalog(list) { set('catalog:' + this.user, list); },
+  async listPhotos(room) { return get('photos:' + this.user + ':' + room, []); },
+  async addPhoto(room, id, data) { const k = 'photos:' + this.user + ':' + room; set(k, get(k, []).concat({ id, data })); },
+  async deletePhoto(room, id) { const k = 'photos:' + this.user + ':' + room; set(k, get(k, []).filter(p => p.id !== id)); },
   browserRooms: () => [],
 };
 
@@ -105,7 +108,7 @@ const online = {
   async _fn(name, body, fallback) {
     let r;
     try { r = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, { method: 'POST', headers, body: JSON.stringify(Object.assign({ token: this.token }, body)) }); }
-    catch { throw new Error('No connection. Check your internet and try again.'); }
+    catch { throw new Error('The AI service could not be reached. Check your internet; if it keeps happening, this feature may not be set up yet.'); }
     let j = null; try { j = await r.json(); } catch {}
     if (r.status === 404) throw new Error('This AI feature is not set up yet.');
     if (!r.ok || !j || j.error) throw new Error((j && j.error) || fallback);
@@ -136,6 +139,12 @@ const online = {
     }
     throw new Error('The picture is taking too long. Please try again later.');
   },
+  // Photos of the real room, kept apart from the room itself so a room can have many.
+  async listPhotos(room) { return (await rpc('app_list_photos', { p_token: this.token, p_room: room })) || []; },
+  async addPhoto(room, id, data) { await rpc('app_add_photo', { p_token: this.token, p_room: room, p_id: id, p_data: data }); },
+  async deletePhoto(room, id) { await rpc('app_delete_photo', { p_token: this.token, p_room: room, p_id: id }); },
+  // Ask the AI to read the room's photos and suggest a starting layout. Takes a minute or two.
+  async aiRoom(input) { return this._fn('room-ai', input, 'The room could not be built from those photos. Please try again.'); },
   browserRooms,
 };
 
