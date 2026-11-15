@@ -124,6 +124,18 @@ const online = {
     }
     throw new Error('The 3D model is taking too long. Please try again later.');
   },
+  // Turn a picture of the current view into a realistic photo, guided by the room's real photos.
+  // Returns the address of the finished picture.
+  async aiRender(view, photos, aspect) {
+    const fail = 'The realistic picture could not be made. Please try again.';
+    const { request_id } = await this._fn('render-ai', { action: 'start', view, photos, aspect }, fail);
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 4000));
+      const s = await this._fn('render-ai', { action: 'status', request_id }, fail);
+      if (s.status === 'done' && s.url) return s.url;
+    }
+    throw new Error('The picture is taking too long. Please try again later.');
+  },
   browserRooms,
 };
 

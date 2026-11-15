@@ -96,6 +96,15 @@ h3:first-child { margin-top:4px; }
 .swatches { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
 .swatches button { display:flex; align-items:center; gap:6px; padding:4px 9px 4px 4px; min-height:34px; font-size:12.5px; border-radius:18px; background:#fff; }
 .swatches button i { width:24px; height:24px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
+#render { position:fixed; inset:0; z-index:25; display:none; align-items:center; justify-content:center; background:rgba(20,22,26,.72); padding:12px; overflow:auto; }
+#render.show { display:flex; }
+#render .card { background:var(--bg); border-radius:18px; padding:16px; width:min(920px,100%); box-shadow:0 20px 60px rgba(0,0,0,.35); }
+#render h2 { font-size:18px; margin:0 0 8px; }
+#render img.big { display:block; width:100%; max-height:66vh; object-fit:contain; border-radius:10px; background:#111; }
+#render .row { margin-top:10px; }
+#render a.btn { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:8px 14px; border-radius:var(--r); border:1px solid var(--line); background:#fff; color:inherit; text-decoration:none; }
+.photos .ph { position:relative; }
+.photos .ph button { position:absolute; right:2px; top:2px; min-height:24px; width:24px; height:24px; padding:0; border-radius:50%; font-size:12px; background:rgba(255,255,255,.92); }
 .photos { display:flex; gap:6px; flex-wrap:wrap; }
 .photos img { width:84px; height:64px; object-fit:cover; border-radius:8px; }
 a.link { color:var(--accent); }
@@ -119,7 +128,7 @@ a.link { color:var(--accent); }
 <div id="hint" class="glass"></div>
 <div id="stick" class="glass" aria-label="Move"><i></i></div>
 <div id="updown"><button id="upBtn" class="glass" aria-label="Up">&#9650;</button><button id="downBtn" class="glass" aria-label="Down">&#9660;</button></div>
-<div id="tools"><button id="collideBtn" class="glass">Collisions: on</button><button id="photoBtn" class="glass">&#128247; Photo</button></div>
+<div id="tools"><button id="collideBtn" class="glass">Collisions: on</button><button id="photoBtn" class="glass">&#128247; Photo</button><button id="renderBtn" class="glass">&#10024; Render</button></div>
 <div id="selbar" class="glass"></div>
 
 <aside id="panel">
@@ -128,6 +137,7 @@ a.link { color:var(--accent); }
 </aside>
 
 <div id="auth"><div class="card" id="authCard"></div></div>
+<div id="render"><div class="card" id="renderCard"></div></div>
 <div id="toast"></div>
 <script type="module" src="js/main.js"></script>
 </body>

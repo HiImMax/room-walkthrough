@@ -313,6 +313,7 @@ function guessFromLink(url) {
   const k = KEYWORDS.find(([w]) => new RegExp(`\\b${w}\\b`).test(lower)); if (k) form.type = k[1];
   const m = /(\d{2,3})[ -]?(inch|in\b|")/.exec(lower); if (m && !form.w) form.w = m[1];
 }
+const MAX_REF = 3;   // real-room photos kept with a room and sent with a render
 function fileToDataURL(file, max = 360, q = 0.8) {
   return new Promise((res, rej) => {
     const img = new Image(), url = URL.createObjectURL(file);
@@ -424,7 +425,15 @@ function tabRoom() {
     el('button', { text: viewer.ao ? 'Soft shading: on' : 'Soft shading: off', class: viewer.ao ? 'on' : '', onclick: () => { viewer.setAO(!viewer.ao); renderPanel(); } }),
     el('div', { class: 'note', text: 'Soft shading adds realistic contact shadows in the 3D view. Turn it off if the view feels slow on your device.' }),
     el('button', { text: 'Reset camera', onclick: () => { viewer.resetCamera(); if (narrow()) closePanel(); } }),
-    scene.refPhotos && scene.refPhotos.length ? [el('h3', { text: 'Reference photos' }), el('div', { class: 'photos' }, scene.refPhotos.map(p => el('img', { src: p, alt: '' })))] : null,
+    el('h3', { text: 'Photos of the real room' }),
+    el('div', { class: 'note', text: `Up to ${MAX_REF} photos. The Render button uses them to match your real carpet, paint, wood and light.` }),
+    scene.refPhotos && scene.refPhotos.length ? el('div', { class: 'photos' }, scene.refPhotos.map((p, i) => el('div', { class: 'ph' }, el('img', { src: p, alt: '' }),
+      el('button', { text: '✕', title: 'Remove photo', onclick: () => { scene.refPhotos.splice(i, 1); commit(); renderPanel(); } })))) : null,
+    (scene.refPhotos || []).length < MAX_REF ? field('Add photos', el('input', { type: 'file', accept: 'image/*', multiple: true, onchange: async e => {
+      scene.refPhotos = scene.refPhotos || [];
+      for (const file of [...e.target.files].slice(0, MAX_REF - scene.refPhotos.length)) { try { scene.refPhotos.push((await fileToDataURL(file, 900, 0.75)).url); } catch (err) { toast(err.message); } }
+      commit(); renderPanel();
+    } })) : null,
     scene.reference ? el('div', { class: 'note', text: `Reference measurement: ${scene.reference}` }) : null,
   ];
 }
@@ -532,6 +541,60 @@ $('photoBtn').onclick = () => {
   if (!scene) return;
   const a = el('a', { href: viewer.snapshot(), download: (scene.name || 'room').replace(/[^\w-]+/g, '-') + '-view.jpg' });
   document.body.append(a); a.click(); a.remove(); toast('Picture of this view saved to your downloads.');
+};
+
+// ---------- realistic render of the current view ----------
+const RATIOS = { '21:9': 21 / 9, '16:9': 16 / 9, '3:2': 1.5, '4:3': 4 / 3, '5:4': 1.25, '1:1': 1, '4:5': 0.8, '3:4': 0.75, '2:3': 2 / 3, '9:16': 9 / 16 };
+function shrink(src, max, q) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height)), c = el('canvas', { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      res({ url: c.toDataURL('image/jpeg', q), ratio: c.width / c.height });
+    };
+    img.onerror = () => rej(new Error('The view could not be captured.'));
+    img.src = src;
+  });
+}
+let rendering = false;
+function renderDialog(state, data) {
+  const card = $('renderCard'); card.innerHTML = '';
+  const close = el('button', { text: 'Close', onclick: () => $('render').classList.remove('show') });
+  const photos = (scene.refPhotos || []).slice(0, MAX_REF);
+  if (state === 'ask') card.append(
+    el('h2', { text: 'Realistic picture of this view' }),
+    el('img', { class: 'big', src: data.view, alt: 'Current view' }),
+    el('div', { class: 'note', text: photos.length
+      ? `An AI will redraw this view as a photo, using your ${photos.length} room photo(s) to match the real materials and light. It takes up to a minute.`
+      : 'An AI will redraw this view as a photo. Tip: add photos of the real room under Menu > Room first, so it can match your real carpet, paint and light.' }),
+    el('div', { class: 'row' }, el('button', { class: 'primary', text: 'Make the picture', onclick: async () => {
+      if (rendering) return; rendering = true; renderDialog('work', data);
+      try { renderDialog('done', Object.assign({ url: await store.aiRender(data.view, photos, data.aspect) }, data)); }
+      catch (e) { renderDialog('fail', Object.assign({ error: e.message }, data)); }
+      rendering = false;
+    } }), close));
+  else if (state === 'work') card.append(
+    el('h2', { text: 'Making your picture…' }),
+    el('img', { class: 'big', src: data.view, alt: 'Current view', style: { opacity: '.55' } }),
+    el('div', { class: 'note', text: 'This takes up to a minute. Keep this page open.' }));
+  else if (state === 'done') card.append(
+    el('h2', { text: 'Realistic picture' }),
+    el('img', { class: 'big', src: data.url, alt: 'Realistic picture of the room' }),
+    el('div', { class: 'note', text: 'To keep it, open it full size and save it (on a phone, press and hold the picture). The AI can change small details, so compare it with the 3D view.' }),
+    el('div', { class: 'row' }, el('a', { class: 'btn', href: data.url, target: '_blank', rel: 'noopener', text: 'Open full size' }), close));
+  else card.append(el('h2', { text: 'No picture this time' }), el('div', { class: 'note', text: data.error }), el('div', { class: 'row' }, close));
+  $('render').classList.add('show');
+}
+$('renderBtn').onclick = async () => {
+  if (!scene) return;
+  if (!store.aiRender) return toast('Realistic pictures need the online version of the app.');
+  if (rendering) return $('render').classList.add('show');
+  try {
+    const v = await shrink(viewer.snapshot(), 1536, 0.88);
+    const aspect = Object.keys(RATIOS).reduce((a, b) => Math.abs(Math.log(RATIOS[b] / v.ratio)) < Math.abs(Math.log(RATIOS[a] / v.ratio)) ? b : a);
+    renderDialog('ask', { view: v.url, aspect });
+  } catch (e) { toast(e.message); }
 };
 
 const stick = $('stick'), knob = stick.firstElementChild;
