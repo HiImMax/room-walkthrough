@@ -434,7 +434,7 @@ function tabRoom() {
       el('button', { text: '✕', title: 'Remove photo', onclick: () => { scene.refPhotos.splice(i, 1); commit(); renderPanel(); } })))) : null,
     (scene.refPhotos || []).length < MAX_REF ? field('Add photos', el('input', { type: 'file', accept: 'image/*', multiple: true, onchange: async e => {
       scene.refPhotos = scene.refPhotos || [];
-      for (const file of [...e.target.files].slice(0, MAX_REF - scene.refPhotos.length)) { try { scene.refPhotos.push((await fileToDataURL(file, 900, 0.75)).url); } catch (err) { toast(err.message); } }
+      for (const file of [...e.target.files].slice(0, MAX_REF - scene.refPhotos.length)) { try { scene.refPhotos.push((await fileToDataURL(file, 1100, 0.78)).url); } catch (err) { toast(err.message); } }
       commit(); renderPanel();
     } })) : null,
     scene.reference ? el('div', { class: 'note', text: `Reference measurement: ${scene.reference}` }) : null,
